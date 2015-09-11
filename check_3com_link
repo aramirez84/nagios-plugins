@@ -61,8 +61,13 @@ fi
 
 #Obtenemos el modelo del switch (4400 o 3226)
 ModelSwitch=`snmpwalk -v 2c -c ${community} ${host} SNMPv2-MIB::sysORDescr.20 | cut -d " " -f 8`
-
-if [[ "$ModelSwitch" =~ "[a-zA-Z]" ]]; then
+BashVersion=`bash --version| tr '\n' ' ' | cut -d ' ' -f 4 | cut -d '.' -f 1`; 
+if [ $BashVersion -eq "3" ]; then
+    regexp="[a-zA-Z]";
+else
+    regexp=[a-zA-Z];
+fi
+if [[ "$ModelSwitch" =~ $regexp ]]; then
 	newport=`echo ${port} | sed 's/^/1/g'`;
 else
 	newport=`echo ${port} | sed -e 's/0/ /g' -e 's/ //g'`;
