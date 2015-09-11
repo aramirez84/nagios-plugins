@@ -1,0 +1,111 @@
+#!/bin/bash
+#########################################################################
+# Script:	check_switch.sh   		                                    #
+# Autor: 	Alejandro							         	            #
+# Proposito:Monitorear Interfaces de Switch 3com 4400 y 3226			#
+#########################################################################
+
+#########################################################################
+# Usage: ./check_switch.sh -H HOST -c COMMUNITY  -p PORT SWITCH
+#########################################################################
+help="\ncheck_switch.sh (c) 2008-2014 GNU GPLv2 licence
+Usage: ./check_switch.sh -H HOST -c COMMUNITY -p PORT
+Options:\n-H IP Switch \n-c COMMUNITY String \n-p PORT SWITCH (01,11,23)"
+
+STATE_OK=0			# define the exit code si status is OK
+STATE_WARNING=1		# define the exit code si status is Warning
+STATE_CRITICAL=2	# define the exit code si status is Critical
+STATE_UNKNOWN=3		# define the exit code si status is Unknown
+
+export PATH=$PATH:/usr/local/bin:/usr/bin:/bin # Set path
+
+# Validamos si el usuario necesita ayuda sobre el plugin y se la mostramos
+#########################################################################
+if [ "${1}" = "--help" -o "${#}" = "0" ]; 
+	then 
+	echo -e "${help}";
+	exit 1;
+fi
+
+# Validamos que los parametros sean los correctos
+#########################################################################
+while getopts "H:c:p:h" Input;
+do
+	case ${Input} in
+	H)	host=${OPTARG};;
+	c)	community=${OPTARG};;
+	p)	port=${OPTARG};;
+	h)      echo -e "${help}"; exit 1;;
+	\?)	echo "Wrong option given. Please use options -H for ip switch, -c for community string and -p for port"
+		exit 1
+		;;
+	esac
+done
+
+# Validamos que los parametros no esten vacios
+#########################################################################
+if [ -z "${host}" -o -z "${community}" -o -z "${port}"  ]; then
+	echo -e "${help}"
+	exit ${STATE_UNKNOWN}
+fi
+
+# Validamos que el nimero de interfaz sea correcto
+InterfaceValid=`echo ${port} | grep -oE "^[0-4][0-9]$"`
+if [ -z "${InterfaceValid}" ]; then
+	echo -e "Interface ${port} invalid"
+	exit 1;
+	elif [ "${InterfaceValid}" -eq "00" ]; then
+		echo -e "Interface ${port} invalid"
+		exit 1;
+fi
+
+#Obtenemos el modelo del switch (4400 o 3226)
+ModelSwitch=`snmpwalk -v 2c -c ${community} ${host} SNMPv2-MIB::sysORDescr.20 | cut -d " " -f 8`
+
+if [[ "$ModelSwitch" =~ "[a-zA-Z]" ]]; then
+	newport=`echo ${port} | sed 's/^/1/g'`;
+else
+	newport=`echo ${port} | sed -e 's/0/ /g' -e 's/ //g'`;
+fi
+
+# Check the desired state of the interface	
+#IntAdminStatus=`snmpwalk -v 2c -c ${community} ${host} IF-MIB::ifAdminStatus.1${port}`
+
+
+# Check the current state of the interface
+IntOperStatus=`snmpwalk -v 2c -c ${community} ${host} IF-MIB::ifOperStatus.${newport} 2>/dev/null`
+
+# Validamos la conexion con el switch
+if [ $? -eq "1" ]; then
+	echo -e "CRITICAL: Unable to connect to switch ${host}"
+	exit ${STATE_CRITICAL};
+fi
+
+
+# Check the last change	 state of the interface
+IntLastChange=`snmpwalk -v 2c -c ${community} ${host} IF-MIB::ifLastChange.${newport}`
+
+# Obtenemos la ubicacion del switch
+SwitchLocation=`snmpwalk -v 2c -c ${community} ${host} SNMPv2-MIB::sysLocation.0`
+
+#Agregamos la ubicacion del switch
+location=`echo ${SwitchLocation} | cut -d " " -f 4,5,6,7`
+
+#Verificamos el status del puerto
+check=`echo ${IntOperStatus} | cut -d " " -f 4 | sed -e 's/\([a-zA-Z]*\)(/ /g' -e 's/)/ /g' -e 's/ //g'`
+state=`echo ${IntOperStatus} | cut -d " " -f 4 | sed -e 's/([0-9])//'`
+
+case $check in
+	1)
+		echo ${IntLastChange} | cut -d ' ' -f 5,6,7 | sed -e 's/^/UP: /g' -e "s/$/ Location:${location}/g"
+		exit ${STATE_OK}
+	;;
+	2)
+		echo "DOWN: Unable to connect to interface ${port}" | sed -e "s/$/ Location:${location}/g";
+		exit ${STATE_CRITICAL}
+	;;
+	*)
+		echo "WARNING: Current interface ${port} is ${state}," | sed -e "s/$/ Location:${location}/g";
+		exit ${STATE_WARNING}
+	;;
+esac
