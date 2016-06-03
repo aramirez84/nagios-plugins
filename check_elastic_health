@@ -1,0 +1,86 @@
+#!/bin/bash
+#########################################################################
+# Script:	check_elastic   		                                    #
+# Autor: 	Alejandro							         	            #
+# Proposito:Monitorear Estatus de un nodo de ElasticSearch			#
+#########################################################################
+
+#########################################################################
+# Usage: ./check_elastic -H HOST -p PORT SWITCH -i index name
+#########################################################################
+help="\ncheck_elastic (c) 2008-2014 GNU GPLv2 licence
+Usage: ./check_elastic -H X.X.X.X -p 9200
+Options:\n-H IP Elastic \n-p PORT 9200 "
+
+STATE_OK=0			# define the exit code si status is OK
+STATE_WARNING=1		# define the exit code si status is Warning
+STATE_CRITICAL=2	# define the exit code si status is Critical
+STATE_UNKNOWN=3		# define the exit code si status is Unknown
+
+export PATH=$PATH:/usr/local/bin:/usr/bin:/bin # Set path
+
+# Validamos si el usuario necesita ayuda sobre el plugin y se la mostramos
+#########################################################################
+if [ "${1}" = "--help" -o "${#}" = "0" ]; 
+	then 
+	echo -e "${help}";
+	exit 1;
+fi
+
+# Validamos que los parametros sean los correctos
+#########################################################################
+while getopts "H:p:h" Input;
+do
+	case ${Input} in
+	H)	HOST=${OPTARG};;
+	p)	PORT=${OPTARG};;
+	h)      echo -e "${help}"; exit 1;;
+	\?)	echo "Wrong option given. Please use options -H for ip elastic  and -p for port"
+		exit 1
+		;;
+	esac
+done
+
+# Validamos que los parametros no esten vacios
+#########################################################################
+if [ -z "${HOST}" -o -z "${PORT}" ]; then
+	echo -e "${help}"
+	exit ${STATE_UNKNOWN}
+fi
+
+
+# Validamos la comunicacion con el puerto
+#########################################################################
+PORT_VALID=`nc -z $HOST $PORT | cut -d " " -f 7`
+if [ -z "${PORT_VALID}" ];then
+    echo "WARNING: No hay comunicacion con el puerto ${PORT}"
+    exit ${STATE_CRITICAL}
+fi
+
+HEALTH=$(curl -XGET "http://$HOST:$PORT/_cluster/health?pretty" 2>/dev/null)
+NUM_HEALT=$(echo $HEALTH | wc -w)
+if [ $NUM_HEALT -eq 6  ];then
+    echo "WARNING: $HEALTH"
+    exit ${STATE_CRITICAL}
+else
+    STATUS_HEALTH=$(echo $HEALTH | cut -d "\"" -f 8)
+fi
+
+case $STATUS_HEALTH in
+	green)
+		echo  "Cluster status green"
+		exit ${STATE_OK}
+	;;
+	yellow)
+		echo "Cluster status yellow";
+		exit ${STATE_CRITICAL}
+	;;
+	red) 
+		echo "Cluester satus red";
+                exit ${STATE_WARNING}
+	;;
+	*)
+		echo "Cluester satus unknow";
+		exit ${STATE_UNKNOWN}
+	;;
+esac
